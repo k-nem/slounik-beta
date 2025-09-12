@@ -4,15 +4,15 @@ import csv
 import os
 from datetime import datetime
 
-# MAPPINGS AND DEFAULTS
-
+# DEFAULTS
 # default paths assumed by functions if no arguments are passed
-defaults = {'databaseFile': os.path.join(os.path.abspath(os.path.dirname(__file__)), 'assets', 'dictionary.db'), # connectToDB()  
+defaults = {'databaseFile': os.path.join(os.path.abspath(os.path.dirname(__file__)), 'assets', 'dictionary.db'), # _connectToDB()  
             'stopWordsFile': os.path.join(os.path.abspath(os.path.dirname(__file__)), 'assets', 'stop_words.txt'), # setStopWords()
             'exportDirectory': os.path.join(os.path.abspath(os.path.dirname(__file__)), 'exports') # exportCSV()
             }
 
-# database column mappings
+# MAPPINGS & CLASSIFICATIONS
+# database columns
 DBcolumns = {
     # used to label search result attributes (redundant table columns are omitted)
     'schema': {
@@ -40,18 +40,18 @@ tokenCategories = {
     # word-like tokens to be queried in the database
     'word': re.compile(r'([а-яА-ЯЁёУўІі]+([\-\'‘’][а-яА-ЯЁёУўІі]+)*)'),
     # sentence-ending punctuation marks to be used for sentence segmentation
-    'sentenceEnd': ('...', '?..', '!..', '?!', '.', '!', '?', '…', '⁈'),
+    'sentenceEnd': ('...', '?..', '!..', '?!', '???', '!!!', '.', '!', '?', '…', '⁈'),
 
     # the key-value pairs below are used for to approximate the category of tokens that are not present in the database
     ## abbreviations
     'abbr': re.compile(r'''
-                         ([а-яА-ЯЁёУўІі]{1,2}[23²³]
+                         ([а-яА-ЯЁёУўІі]{1,2}[23²³] # Quadratic or cubic units of measurements: `м2`
                          |([а-яА-ЯЁёУўІі]+\.[а-яА-ЯЁёУўІі]+\.) # Compound abbreviations with periods: `н.э.`
                          |([А-ЯЁУІ]?[а-яёўі]+\.\-[а-яёўі]+\.) # Compound abbreviations with periods and hyphens: `с.-г.`
                          |([а-яА-ЯЁёУўІі]+\/[а-яА-ЯЁёУўІі]+) # Compound abbreviations with slashes: `к/т`
                          |([А-ЯЁУІ]\.) # Initials: `Д. [Свіфт]`
                          |(\d+\-[а-яёўі]+([\'‘’][а-яёўі]+)*) # Numerical expressions with cyrillic endings: `1-шы`
-                         |[а-яА-ЯЁёУўІі]+\.)
+                         |[а-яА-ЯЁёУўІі]+\.) # 
                          ''',
                          re.X),
     ## alphanumeric codes
@@ -62,12 +62,12 @@ tokenCategories = {
     'num': re.compile(r'''
                          ([0123]\d\.[01]\d(\.((\d{2})|(\d{4})))? # Dot-separated dates: `01.02.03`
                          |[012]?\d:[012345]\d(:[012345]\d)? # Time `12:34`
-                         |((?=[MDCLXVI])M*(C[MD]|D?C{0,3})(X[CL]|L?X{0,3})(I[XV]|V?I{0,3})) # Roman numerals
+                         |(M*(C[MD]|D?C{0,3})(X[CL]|L?X{0,3})(I[XV]|V?I{0,3})) # Roman numerals
                          |(\d+([,\.]\d+)?) # Numbers: `1,234`, `2025`
-                         |\d{1,3}(\s\d{3})+)
+                         |((8\s?\(?\d{3}\)?)|(\(?\+?\d{3}\s?\(?\d{2}\)?))\s?\d{3}[\-\s]?\d{2}[\-\s]?\d{2} ) # Phone numbers
                          ''',
                          re.X),
-    ## space-separated numbers
+    ## numbers with space-separated thousand groups
     'numSpace': re.compile(r'[1-9]\d{,2}(\s\d{3})+'),
     ## punctuation marks
     'punct': ('...', '?..', '!..', '!!!', '???', '?!', '⁈', '-,', '- ,', '–,', '– ,', '.', ',', ':', ';', '!', '?', '…', '-', '–', '—', '«', '»', '„', '“', '"', '(', ')', '[', ']', '{', '}'),
@@ -162,7 +162,7 @@ def _generateSearchSQL(kwargDictionary):
     - `searchFiltersSQL` (str) : SQL arguments to be added to SQL search statement.
 
     [USAGE]:
-    This function is used for an interim operation in `formSearch()`, `lemSearch()`, `fastFormSearch()`, `fastLemSearch()` functions and is not intended for stand-alone use.
+    This function is used for an interim operation in search functions and is not intended for stand-alone use.
     '''
     kwargStrings = ()
     
@@ -284,84 +284,6 @@ def setStopWords(lemIDs = defaults['stopWordsFile']):
     return message
 
 
-def formConllu(formID, includeForm = True, **kwargs):
-    '''
-    Generate a form's annotation corresponding to CoNLL-U `FORM` (optional), `LEMMA`, `UPOS`, `FEATS` columns by form ID.
-
-    [ARGUMENTS]:
-    - `ID` (int) : The ID of the form in Form table.
-    - `includeForm` (bool) OPTIONAL : Indicates whether `FORM` is included in the output (redundant for `textConllu()` function), `True` if not specified.
-      [VALUE OPTIONS]:
-        - False : The output only has `LEMMA`, `UPOS`, `FEATS` values.
-        - True DEFAULT : Full output.
-
-    [RETURNS]:
-    - `output` (dict) :  Form annotation.
-    '''
-    # RESET
-    connection, formValues, lemValues, response, output, features = [None] * 6
-    
-    # QUERY DATABASE
-    try:
-        connection = _connectToDB()
-        if connection:
-            with connection[0]:
-                # request Form table row with matching ID
-                connection[1].execute(f'SELECT {DBcolumns['SQL']['form']} FROM Form WHERE ID = {formID}')
-                formValues = connection[1].fetchone()
-                # provide lemma data for the result
-                if formValues:
-                    # request Lemma table row
-                    connection[1].execute(f'SELECT {DBcolumns['SQL']['lemma']} FROM Lemma WHERE ID = {formValues[1]}')
-                    lemValues = connection[1].fetchone()
-                        
-                    response = (formValues, lemValues)
-                    
-            connection[0].close()
-
-    except sqlite3.Error as exception:
-        return exception
-
-    # ANNOTATE RESULTS
-    if response:
-        output, features = ({}, {})
-
-        # check whether the data structure is valid 
-        if len(response) == 2 and isinstance(response[0], tuple) and isinstance(response[1], tuple):
-            
-            # FORM DATA
-            if includeForm == True: output['FORM'] = response[0][3] 
-            # detect non-empty values excluding redundant attributes
-            for i, value in [item for item in enumerate(response[0][5:]) if item[1]]:
-                # rename Cas to Case (restricted word in SQLite)
-                if i == 2: features['Case'] = value
-                # integer to UD `Animacy` value string
-                elif i == 8: features['Animacy'] = _boolly(value, 3)
-                # integer to UD "boolean" string
-                elif i == 9: features['Short'] = _boolly(value, 0)
-                # add other values without modification
-                else: features[DBcolumns['schema']['form'][5:][i]] = value
-
-            # LEMMA DATA
-            output['LEMMA'] = response[1][1]
-            # detect non-empty values excluding redundant attributes
-            for i, value in [item for item in enumerate(response[1][2:]) if item[1]]:
-                    # UPOS value
-                    if i == 0: output['UPOS'] = value
-                    # integer to UD `Animacy` value string
-                    elif i == 9: features['Animacy'] = _boolly(value, 3)
-                    # integers to UD "boolean" strings
-                    elif i in (10, 13, 15, 16): features[DBcolumns['schema']['lemma'][2:][i]] = _boolly(value, 0)
-                    # add other values without modification
-                    else: features[DBcolumns['schema']['lemma'][2:][i]] = value
-
-        # joining FEATS key-value pairs
-        if features: output['FEATS'] = '|'.join([''.join([key, '=', str(features[key])])for key in sorted(features.keys())])
-        else: output['FEATS'] = '_'
-     
-    return output
-
-
 def accentuate(form, accentData):
     '''
     Add word stress diacritic marks to a word form. The mark used is Unicode `\u0301`.
@@ -373,7 +295,7 @@ def accentuate(form, accentData):
     [RETURNS]:
     - `accentedForm` (str) : The inputted word form with diacritic marks.
     OR
-    - `None` (NoneType) : Returned if the submittef data is invalid.
+    - `None` (NoneType) : Returned if the submitted data is invalid.
     '''
     # validate arguments
     if not isinstance(form, str): return None
@@ -411,7 +333,7 @@ def exportCSV(data, level, directory = defaults['exportDirectory']):
       [VALUE OPTIONS]:
         - 'f' : Form, for `formSearch()` results.
         - 'l' : Lemma, for `lemmaSearch()` results.
-    - `path` (str) OPTIONAL : OS path to the target directory. If not specified, the default `exportPath` value is used. Defaults can be modified using `config.ini`.
+    - `path` (str) OPTIONAL : OS path to the target directory. If not specified, the default `exportPath` value is used.
 
     [RETURNS]:
     `Slounik_Export_{YYYY-MM-DD_HH-MM-SS}.csv` (File) OS : CSV file with the inputted data generated in the specified directory of local file system.
@@ -460,7 +382,7 @@ def exportCSV(data, level, directory = defaults['exportDirectory']):
     else: dataCheck = True
     
     if dirCheck and dataCheck:
-        def makeRow(result, mode):
+        def _makeRow(result, mode):
             '''
             Convert a single search result into a tuple mapped to CSV file row.
 
@@ -504,7 +426,7 @@ def exportCSV(data, level, directory = defaults['exportDirectory']):
             return row
     
         # GENERATE FILE
-        for entry in data: rows += (makeRow(entry, level),)
+        for entry in data: rows += (_makeRow(entry, level),)
         filename = os.path.join(directory, ''.join(('Slounik_Export_', datetime.now().strftime('%Y-%m-%d_%H-%M-%S'), '.csv')))
         
         with open(filename, 'w', newline='', encoding='utf-8') as file:
@@ -529,7 +451,7 @@ def formSearch(query, keepLetterCase = False, fastMode = False, **kwargs):
         - `*` : Zero or more of any characters.
         - `[абв]` or `[а-в]` : Any character in the range specified in the brackets, once.
         - `[!абв]` or `[!а-в]` : Any character NOT in the range specified in the brackets, once.
-    - Attribute (keyword argument) OPTIONAL : Form or lemma database attributes in `keyword = value` format, e.g., "Case = 'Nom'". See the attribute options listed below. For available categorical values refer to the documentation.
+    - Attribute (keyword argument) OPTIONAL : Form or lemma database attributes in `keyword = value` format, e.g., "Case = 'Nom'". See the attribute options listed below. For available categorical values refer to README.
       Keywords are not case sensitive and should not be put in quotation  marks. Values are case sensitive and use their respective Python data types: POS = 'NOUN', Person = 2, Abbr = True.
       Note: Attributes that can be applied to both form and lemma level (`Degree`, `Person`, `Gender`, `Tense`, `Animacy`, `VerbForm`) must to be prefixed with 'f_' and 'l_' correspondingly. 
       For example, `Degree` column value in Lemma database table is submitted under `l_Degree` keyword, the column of the same name in Form table is denoted by `f_Degree`. 
@@ -851,7 +773,7 @@ def lemmaSearch(query, keepLetterCase = False, fastMode = False, **kwargs):
         output = ()
         if fastMode == False:
             for result in response:
-                output += (UDify(result, 'l'),)
+                output += (_UDify(result, 'l'),)
         elif fastMode == True:
             output = tuple([result[0] for result in response])
 
@@ -960,8 +882,8 @@ def allForms(lemID):
             # generate form tuples (paradigms) grouped by variant
             variants = {}
             for form in response['forms']:
-                if form[0] not in variants.keys(): variants[form[0]] = (UDify(form[1], 'f'),)
-                else: variants[form[0]] += (UDify(form[1], 'f'),)           
+                if form[0] not in variants.keys(): variants[form[0]] = (_UDify(form[1], 'f'),)
+                else: variants[form[0]] += (_UDify(form[1], 'f'),)           
             # add form groups to the output
             for variant in sorted(variants.keys()):
                 output['Variants'] += ({'Variant': variant, 'Paradigm': variants[variant]},)
@@ -974,7 +896,7 @@ def allForms(lemID):
 def tokenize(text):
     '''
     Converts a plain text in Belarusian into a tuple of word-level tokens. Tokens are segmented based on standard Belarusian number, date etc. formats. 
-    Supported token types: Words in Cyrillic and Latin script, Arabic and Roman numerals, abbreviations, punctuation marks, symbols, alphanumeric codes, date and time, Belarusian phone numbers, usernames, emails, top level URLs, some emoticons. See documentation for full description.
+    Supported token types: Words in Cyrillic and Latin script, Arabic and Roman numerals, abbreviations, punctuation marks, symbols, alphanumeric codes, date and time, Belarusian phone numbers, usernames, emails, top level URLs, some emoticons. See README for full description.
 
     [ARGUMENTS]:
     - `text` (str) : Plain text in Belarusian.
@@ -983,7 +905,7 @@ def tokenize(text):
     - `output` (tuple) : The tuple of tokens extracted from the text.
 
     [USAGE]:
-    Generally, this operation is used by text annotation functions after paragraph segmentation and before sentence segmentation. 
+    This operation is intended to be used by text annotation functions after paragraph segmentation and before sentence segmentation. 
     '''
     # check `text` value validity
     if not isinstance(text, str): return None
@@ -993,12 +915,11 @@ def tokenize(text):
     
     tokenPattern = re.compile(r'''
                         ([а-яА-ЯЁёУўІі]{1,2}[23²³]  # Units of measurements with digits: `м2`
-                        |(?<!\d)((8\s?\(?\d\d\d\)?)|(\(?\+?3
-                        75\s?\(?\d\d\)?))\s?\d\d\d[\-\s]?\d\d[\-\s]?\d\d(?!\d) # Phone numbers: `+375(33)123-45-67`, `8(017)2613202`
+                        |(?<!\d)((8\s?\(?\d{3}\)?)|(\(?\+?\d{3}\s?\(?\d{2}\)?))\s?\d{3}[\-\s]?\d{2}[\-\s]?\d{2}(?!\d) # Phone numbers: `+375(33)123-45-67`, `8(017)2613202`
                         |(?<!\d)[0123]\d\.[01]\d(\.((\d{2})|(\d{4})))?(?!\d) # Dot-separated dates: `01.02.03`
                         |(@[a-zA-Z_\.]+(?![\.\w])) # Usernames: `@user`
                         |([a-zA-Z_\.]+@[a-zA-Z\-]+(\.[a-zA-Z]+)+) # Email adresses: `a_b@mail.com.by`
-                        |((http(s)?://)?(www\.)?[a-zA-Z]+(\.[a-zA-Z]+)+)) # URLs: `https://www.domain.com.by`
+                        |(http(s)?://)?(www\.)?[a-zA-Z-]+(\.[a-zA-Z]+)+(/.+)? # URLs: `https://www.domain.com.by/home?=213`
                         |((?=[MDCLXVI])M*(C[MD]|D?C{0,3})(X[CL]|L?X{0,3})(I[XV]|V?I{0,3})) # Roman numerals: `XXI`
                         |([\(\)]{3,}|\.\.\.|\?\.\.|\!\.\.|\?\!|,\s?\-|[:;]\-?[\(\)]+|°[CС]) # Some multi-character symbols: `...`, `?..`, `?!`, `))))`, `:)`, `°C`, `,-`
                         |([а-яА-ЯЁёЎўІі]+\.[а-яА-ЯЁёЎўІі]+\.) # Compound abbreviations with periods: `н.э.`
@@ -1006,14 +927,14 @@ def tokenize(text):
                         |([а-яА-ЯЁёЎўІі]+\/[а-яА-ЯЁёЎўІі]+) # Compound abbreviations with slashes: `к/т`
                         |([А-ЯЁЎІ]\.)(?=\s?[А-ЯЁЎІ]) # Initials: `Д. [Свіфт]`
                         |((?<=\s)([а-яёўі]+\.)(?=\s[^\sА-ЯЁЎІ])) # Abbreviations with periods before anything except capitalized characters: `тыс. [студэнтаў]`
-                        |(?<!\d)[012]?\d:[012345]\d(:[012345]\d)?(?!\d) # Time and duration: `12:34`, `12:34:56`
+                        |((?<!\d)[012]?\d:[012345]\d(:[012345]\d)?(?!\d)) # Time and duration: `12:34`, `12:34:56`
                         |(\d*[A-ZА-ЯЁЎІ]+(\d+[A-ZА-ЯЁЎІ]*)+) # Alphanumeric codes: `BY1A2C33330000`
                         |([а-яА-ЯЁёЎўІі]+([\-\'‘’][а-яА-ЯЁёЎўІі]+)*) # Word-like tokens: `аб'ект`, `ха-ха`, `слова`, `ААН`
                         |[a-zA-Z]+ # Latin word-like tokens: `Google`
-                        |(?<!\d)([1-9]\d{,2}(\s\d{3})+)(?!\d) # Space-separated numbers: `1 000 000`
+                        |((?<!\d)([1-9]\d{,2}(\s\d{3})+)(?!\d)) # Space-separated numbers: `1 000 000`
                         |(\d+\-[а-яёўі]+([\'‘’][а-яёўі]+)*) # Numerical expressions with cyrillic endings: `1-шы`
                         |(\d+(,\d+)?) # Numbers: `1,234`, `2025`
-                        |([\.,:;\!\?…\-–—«»„“"\(\)\[\]\{\}\///%№#\^@_\+=\*<>~$€£₽℃℉×÷&§⁈°®©™] # Punctuation marks: `!`
+                        |[\.,:;\!\?…\-–—«»„“"\(\)\[\]\{\}\///%№#\^@_\+=\*<>~$€£₽℃℉×÷&§⁈°®©™] # Punctuation marks and symbols: `!`, `%`
                         |\s # Spaces
                         |[^\s]+) # Other characters not captured by prevous expression groups: `👻`
                         ''', 
@@ -1084,7 +1005,7 @@ def splitSentences(tokens):
 def annotateToken(token, toConllu = False, extended = True):
     '''
     Annotate a token regardless of whether it is present in the database. `(U)POS` values and features are specified at search result level since there can be multiple matches for a token.
-    The following extended token types are optionally supported: Arabic and Roman numerals, abbreviations, punctuation marks, symbols, alphanumeric codes, date and time, Belarusian phone numbers, usernames, emails, top level URLs, some emoticons. See documentation for full description.
+    The following extended token types are optionally supported: Arabic and Roman numerals, abbreviations, punctuation marks, symbols, alphanumeric codes, date and time, Belarusian phone numbers, usernames, emails, top level URLs, some emoticons. See README for full description.
     
     [ARGUMENTS]:
     - `token` (str) : A word-level token.
@@ -1095,7 +1016,7 @@ def annotateToken(token, toConllu = False, extended = True):
     - `extended` (bool) OPTIONAL: This attribute indicates whether additional token types are included in the search.
       [VALUE OPTIONS]:
         - False : Only database results are returned.
-        - True DEFAULT : Tokens are checked against extended token types as defined in `tokenCategories`, e.g. numbers, punctuation marks, symbols etc. See documentations for the definitions.
+        - True DEFAULT : Tokens are checked against extended token types as defined in `tokenCategories`, e.g. numbers, punctuation marks, symbols etc. See README for the definitions.
 
     [RETURNS]:
     - `output` (dict) : Annotated tokens, structured according to `toConllu` value. 'Results' dictionary is optional if `toConllu == False`.
@@ -1176,12 +1097,16 @@ def annotateToken(token, toConllu = False, extended = True):
         elif ('(' in token or ')' in token) and len(token) > 1:
             if re.fullmatch(tokenCategories['emo'], token):
                 if toConllu == False: output['Results'][1] = {'POS': 'SYM'} 
-                elif toConllu == True: output['Results'][1] = {'LEMMA': token, 'UPOS': 'SYM', 'FEATS': '_'} 
+                elif toConllu == True: output['Results'][1] = {'LEMMA': token, 'UPOS': 'SYM', 'FEATS': '_'}
+        elif ' ' in token and len(token) > 4:
+            if re.fullmatch(tokenCategories['numSpace'], token):
+                if toConllu == False: output['Results'][1] = {'POS': 'NUM'} 
+                elif toConllu == True: output['Results'][1] = {'LEMMA': token, 'UPOS': 'NUM', 'FEATS': '_'}
         # database lookup for word-like tokens
         elif re.fullmatch(tokenCategories['word'], token):
             output['Results'] = DBresults(token)
         # checking against regex categories
-        elif re.fullmatch(tokenCategories['num'], token) or re.fullmatch(tokenCategories['numSpace'], token): 
+        elif re.fullmatch(tokenCategories['num'], token): 
             if toConllu == False: output['Results'][1] = {'POS': 'NUM'} 
             elif toConllu == True: output['Results'][1] = {'LEMMA': token, 'UPOS': 'NUM', 'FEATS': '_'}
         elif re.fullmatch(tokenCategories['code'], token):
@@ -1213,7 +1138,7 @@ def annotateSentence(tokens, toConllu = False, extended = True):
     - `extended` (bool) OPTIONAL: This attribute indicates whether additional token types are included in the search.
       [VALUE OPTIONS]:
         - False : Only database results are returned.
-        - True DEFAULT : Tokens are checked against extended token types as defined in `tokenCategories`, e.g. numbers, punctuation marks, symbols etc. See documentations for the definitions.
+        - True DEFAULT : Tokens are checked against extended token types as defined in `tokenCategories`, e.g. numbers, punctuation marks, symbols etc. See README for the definitions.
 
     [RETURNS]:
     - `output` (dict) : Nummered and annotated tokens, structured according to `toConllu` value.
@@ -1259,7 +1184,7 @@ def annotateText(text, toConllu = False, extended = True):
     - `extended` (bool) OPTIONAL: This attribute indicates whether additional token types are included in the search.
       [VALUE OPTIONS]:
         - False : Only database results are returned.
-        - True DEFAULT : Tokens are checked against extended token types as defined in `tokenCategories`, e.g. numbers, punctuation marks, symbols etc. See documentations for the definitions.
+        - True DEFAULT : Tokens are checked against extended token types as defined in `tokenCategories`, e.g. numbers, punctuation marks, symbols etc. See README for the definitions.
 
     [RETURNS]:
     - `output` (dict) : Segmented, tokenized and annotated text. 
@@ -1387,7 +1312,7 @@ def completeConllu(incompleteConllu, extended = True):
     - `extended` (bool) OPTIONAL: This attribute indicates whether additional token types are included in the search.
       [VALUE OPTIONS]:
         - False : Only database results are returned.
-        - True DEFAULT : Tokens are checked against extended token types as defined in `tokenCategories`, e.g. numbers, punctuation marks, symbols etc. See documentations for the definitions.
+        - True DEFAULT : Tokens are checked against extended token types as defined in `tokenCategories`, e.g. numbers, punctuation marks, symbols etc. See README for the definitions.
 
     [RETURNS]:
     - `output` (str) : Tab-separated CoNLL-U table with token annotation added where possible.
