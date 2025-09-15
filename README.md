@@ -1,27 +1,28 @@
-# Slounik
+# Slounik 
 `slounik` is a Python module that performs the tokenization, lemmatization, morphological analysis and annotation of Belarusian text. It uses [Universal Dependencies](https://universaldependencies.org/) annotation standard ([UD-BE](https://universaldependencies.org/be/index.html)) and supports [CoNLL-U](https://universaldependencies.org/format.html) output. Where possible, [UD Belarusian HSE](https://universaldependencies.org/treebanks/be_hse/index.html) approach to annotation was adopted. UTF-8 encoding is assumed and should be used for input.
 
 ## Data source
- The morhological analysis is largely based on the dictionary database which can be found on https://github.com/k-nem/BelGrammarDB with the detailed documentation. The following changes were implemented in the database version of this module:
+ The morhological analysis is largely based on the dictionary database which can be found on https://github.com/k-nem/BelGrammarDB with the detailed documentation. The following changes were applied to the database version of this module:
 - `Sources` & `Ortho` columns were dropped from `Form` & `Variant` tables since these values are not used in morphological annotation.
 - For the speed of processing, `Lowercase` & `Len` columns were added to `Form` & `Lemma` tables. They contain lowercase versions and the lengths in characters correspondingly. This increases the file size but allows to forego slow SQL string operations during search.
+- The original alphabetical variant IDs were replaced with numerical, e.g., `a` becomes `1`, etc.
 
 ### Attribute names (database columns)
-- `Type` column name (`Lemma` table in the database) is transformed into `{POS}Type` on output generation, e.g., an adjective's type is labelled as `AdjType`, to adhere to UD standard.
-- Attributes that correspond to reserved words in SQLite are transformed on input and output, so SQLite `Cas` becomes `Case`, `Len` becomes `Length` as function attributes. This allows to input arguments in UD format as opposed to SQLite schema names.
+- `Type` column name (`Lemma` table in the database) is converted into `{POS}Type` on output generation, e.g., an adjective's type is labelled as `AdjType`, to adhere to UD standard.
+- Attributes that correspond to reserved words in SQLite are converted on input and output, so SQLite `Cas` becomes `Case`, `Len` becomes `Length` as function attributes. This allows to input arguments in intuitive UD format as opposed to SQLite schema names.
 
-### Values 
-The content of the annotation corresponds to the database values, see README at https://github.com/k-nem/BelGrammarDB. An exception is the transformation of logically Boolean SQLite values (`0` & `1` integers corresponding to `False` & `True`) to their CoNLL-U and Pythonic versions:
-- SQLite "boolean" integer to UD string: 0 -> 'No', 1 -> 'Yes'.
-- UD string to integer: 'No' -> 0, 'Yes' -> 1.
-- SQLite "boolean" integer to UD `Animacy` value string: 0 -> 'Inan', 1 -> 'Anim'.
-- UD `Animacy` value to integer: 'Inan' -> 0, 'Anim' -> 1.
-- SQLite "boolean" integer to Python Boolean: 0 -> False, 1 -> True.
-- Python Boolean to integer: False -> 0, True -> 1.
+### Values
+The content of the annotation corresponds to the database values, see README at https://github.com/k-nem/BelGrammarDB. An exception is the conversion of logically Boolean SQLite values (`0` & `1` integers corresponding to `False` & `True`) to their CoNLL-U and Pythonic versions:
+- SQLite "boolean" integer to UD string: `0 → 'No'`, `1 → 'Yes'`.
+- UD string to integer: `'No' → 0`, `'Yes' → 1`.
+- SQLite "boolean" integer to UD `Animacy` value string: `0 → 'Inan'`, `1 → 'Anim'`.
+- UD `Animacy` value to integer: `'Inan' → 0`, `'Anim' → 1`.
+- SQLite "boolean" integer to Python Boolean: `0 → False`, `1 → True`.
+- Python Boolean to integer: `False → 0`, `True → 1`.
 
 Most functions have `toConllu` flag which derermines the output format. `toConllu == True` converts logically Boolean values into UD strings, and `toConllu == False` outputs such values as Pythonic Boolean. 
 
-**Note**: Functions accept arguments in Pythonic format. 
+**⚠️ Note**: Functions accept arguments in Pythonic format. 
 
 ## Installation
 The installation follows the standard Python module import procedure.
@@ -54,7 +55,7 @@ The installation follows the standard Python module import procedure.
 ### Paragraph segmentation
 In plain text the paragraph boundaries are detected at `\n` new line symbol.
 ### Sentence segmentation
-Sentence segmentation takes place after tokenization. A paragraph token group is split into sentence token groups at the following conditions:
+Sentence segmentation takes place after tokenization. A paragraph token group is split into sentence token sub-groups at the following conditions:
 - Conventional sentence end punctuation: `.`, `!`, `?`, `…`, `⁈`, `...`, `?..`, `!..`, `?!`, `???`, `!!!`. The pattern can be requested by `sentenceEnd` key from `slounik.tokenCategories` dictionary.
 - Emoticons (see Extended token types)
 
@@ -79,7 +80,7 @@ The initial tokenization is performed by applying the following expression to pl
 |((?<=\s)([а-яёўі]+\.)(?=\s[^\sА-ЯЁЎІ])) # Abbreviations with periods before anything except capitalized characters: `тыс. [студэнтаў]`
 |((?<!\d)[012]?\d:[012345]\d(:[012345]\d)?(?!\d)) # Time and duration: `12:34`, `12:34:56`
 |(\d*[A-ZА-ЯЁЎІ]+(\d+[A-ZА-ЯЁЎІ]*)+) # Alphanumeric codes: `BY1A2C33330000`
-|([а-яА-ЯЁёЎўІі]+([\-\'‘’][а-яА-ЯЁёЎўІі]+)*) # Word-like tokens: `аб'ект`, `ха-ха`, `слова`, `ААН`
+|[а-яА-ЯЁёУўІі]+(([\'‘’][а-яА-ЯЁёУўІі]+)|(-[а-яА-ЯЁёУўІі]+){1,2})? # Word-like tokens: `аб'ект`, `ха-ха`, `слова`, `ААН`
 |[a-zA-Z]+ # Latin word-like tokens: `Google`
 |((?<!\d)([1-9]\d{,2}(\s\d{3})+)(?!\d)) # Space-separated numbers: `1 000 000`
 |(\d+\-[а-яёўі]+([\'‘’][а-яёўі]+)*) # Numerical expressions with cyrillic endings: `1-шы`
@@ -90,14 +91,14 @@ The initial tokenization is performed by applying the following expression to pl
 ''', re.X
 ```
 ### Tokens with spaces
-The only token type that can have spaces in a token is a number with space-separated thousand groups like `1 000 000`.
+The only token type that can contain spaces is a number with space-separated thousand groups like `1 000 000`.
 
 ## Sentence boundary vs. abbreviation with `.` full stop
 Contractions with `.` full stop characters pose a problem for both word-level tokenization and sentence segmentation, since it is impossible to formally distinguish them from a word at the end of a sentence. During initial tokenization such sequences are split into two tokens, one word-like token and one punctuation token for the full stop. 
 
 Additionally, the following subset of contractions that are improbable to be at the end of a sentence is marked for a separate check: `акад.`, `б.`, `бухг.`, `в.`, `воз.`, `вул.`, `гл.`, `гр.`, `дац.`, `заг.`, `зб.`, `нам.` `напр.`, `параўн.`, `праф.`, `р.`, `св.`, `сп.`, `тав.`. The list can be requested by `stopNonFinal` key from `slounik.abbreviations` dictionary.
 
-If one of these is detected as in a sequence with a full stop, the sequence is grouped into one token and marked with `Abbr=Yes` (`'Abbr': True`). If a similar sequence of tokens is detected as an abbreviation that doesn't belong to this list, the tokens remain separate. Paragraph and sentence tokenization then proceeds normally, and sentences are split by `.` tokens.
+If one of these abbreviations is detected in a sequence with a full stop, the sequence is grouped into one token and marked with `Abbr=Yes` (`'Abbr': True`). Otherwise, the tokens remain separate. Paragraph and sentence tokenization then proceeds normally, and sentences are split by `.` tokens.
 
 ## Token categories
 ### Word tokens
@@ -105,7 +106,7 @@ Word tokens can include `'` apostrophes or `-` hyphens. If a word-like token is 
 |Feature|Value|
 |:-|:-|
 |Detection|RegEx|
-|Definition|`([а-яА-ЯЁёУўІі]+([\-\'‘’][а-яА-ЯЁёУўІі]+)*)`|
+|Definition|`[а-яА-ЯЁёУўІі]+(([\'‘’][а-яА-ЯЁёУўІі]+)\|(-[а-яА-ЯЁёУўІі]+){1,2})?`|
 |Examples|`аб'ект`, `ха-ха`, `слова`, `ААН`|
 |`UPOS` value|As in database if matched, otherwise `X`|
 |`FEATS` value|As in database if matched, otherwise `_`|
@@ -113,7 +114,7 @@ Word tokens can include `'` apostrophes or `-` hyphens. If a word-like token is 
 ### Extended token types
 In the current implementation the databased remains unmodified as it is assembled in https://github.com/k-nem/BelGrammarDB. In addition to the lexical tokens present in the dictionary database, it is possible to approximate some other token types, as defined either in static lists or with regular expressions (see below). This option is enabled by default and can be disabled by passing `extended = False` flag in annotation functions. The classification rules can be requested from `slounik.tokenCategories` dictionary (all keys except `word` & `sentenceEnd`).
 
-**Note**: Tokenization RegEx patterns use lookarounds, while token classification does not need the context because it is applied to already tokenized strings. Tokenizer also has more expressions than this classification, though they largely overlap, because it extracts some token types that are later remain unclassified (`UPOS = X`).
+**Note**: Tokenization RegEx patterns use lookarounds, while token classification does not need the context because it is applied to already tokenized strings. Tokenizer also has more expressions than this classification, though they largely overlap, because it extracts some token types that later remain unclassified (`UPOS = X`).
 
 |Group|Category|Detection|Definition|Examples|`UPOS` value|`FEATS` value|
 |:-|:-|:-|:-|:-|:-|:-|
@@ -134,23 +135,23 @@ In the current implementation the databased remains unmodified as it is assemble
 |Numerals|Dates|RegEx|`[0123]\d\.[01]\d(\.((\d{2})\|(\d{4})))?`|`01.02.03`, `01.02.2003`|`NUM`||
 |Numerals|Time|RegEx|`[012]?\d:[012345]\d(:[012345]\d)?`|`01:23`, `01:23:45`|`NUM`||
 |Numerals|Roman numerals|RegEx|`M*(C[MD]\|D?C{0,3})(X[CL]\|L?X{0,3})(I[XV]\|V?I{0,3})`|`LXXVIII`, `XX`|`NUM`||
-|Numerals|Phone numbers|RegEx|`((8\s?\(?\d{3}\)?)\|(\(?\+?\d{3}\s?\(?\d{2}\)?))\s?\d{3}[\-\s]?\d{2}[\-\s]?\d{2}`|`LXXVIII`, `XX`|`NUM`||
+|Numerals|Phone numbers|RegEx|`((8\s?\(?\d{3}\)?)\|(\(?\+?\d{3}\s?\(?\d{2}\)?))\s?\d{3}[\-\s]?\d{2}[\-\s]?\d{2}`|`8(017)123-45-67`, `+375(12)3456789`|`NUM`||
 
-The following abbreviations are cannot be distinguished with RegEx:
+The following abbreviations cannot be distinguished with RegEx:
 
 `в-аў`, `п-аў`, `р-н`, `т-ва`, `ун-т`, `млн`, `млрд`, `см`, `га`, `м`, `мм`, `мг`, `кг`, `км`, `л`, `дж`, `кал`, `ккал`, `гц`, `мін`, `сут`.
 
-Tokens are checked against the list, which can be requested by `noStop` key from `slounik.abbreviations` dictionary, and marked with `Abbr=Yes` (`'Abbr': True`) if they match.
+A token is checked against the list, which can be requested by `noStop` key from `slounik.abbreviations` dictionary, and marked with `Abbr=Yes` (`'Abbr': True`) if it has a match.
 
 ## Stop words
-Lemmas can be excluded from search results by adding them to the list of stop words under `slounik.stopWords` variable. This is done via `setStopWords()` function, see documentation below. The default location of the list is `slounik/assets/stop_words.txt`. It can only include lemma IDs (`ID` in `Lemma` database table) separated with commas as in `1, 2, 3`. The content of this file is automatically assigned to `slounik.stopWords` variable on the module's import. It could be overriden by another call to `setStopWords()` function.
+Lemmas can be excluded from search results by adding them to the list of stop words under `slounik.stopWords` variable. This is done via `setStopWords()` function, see documentation below. The default location of the list is `slounik/assets/stop_words.txt`. It can only include lemma IDs (`ID` in `Lemma` database table) separated with commas as in `1, 2, 3`. The content of this file is automatically assigned to `slounik.stopWords` variable on the module's import. It could be overriden by another call to `setStopWords()` function, find its documentation below.
 
 ## Default paths
-**⚠️ ADVANCED USERS ONLY**: It is possible to change the defaults paths to the database, stop words list file and CSV export location by modifying `defaults` dictionary on top of `slounik.py` **at your own risk**.
+**⚠️ ADVANCED USERS ONLY**: It is possible to change the defaults paths to the database, stop words list file and CSV export location by modifying `defaults` dictionary on top of `slounik.py` **at your own risk**. It can be convenient if one needs to regularly use a modified database file, stop word file or CSV export locations.
 
 ## Functions
 
-Do use `help()` function to request functions' documentation. Example: `help(slounik.formByID)`.
+Do use `help()` function to request any function's documentation. Example: `help(slounik.formByID)`.
 
 ### `formSearch`
 Find all forms than match the query and return their full form, lemma and variant data.

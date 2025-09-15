@@ -38,7 +38,7 @@ validQueryCharacters = 'абвгдеёжзійклмнопрстуўфхцчшы
 # token classification
 tokenCategories = {
     # word-like tokens to be queried in the database
-    'word': re.compile(r'([а-яА-ЯЁёУўІі]+([\-\'‘’][а-яА-ЯЁёУўІі]+)*)'),
+    'word': re.compile(r'[а-яА-ЯЁёУўІі]+(([\'‘’][а-яА-ЯЁёУўІі]+)|(-[а-яА-ЯЁёУўІі]+){1,2})?'),
     # sentence-ending punctuation marks to be used for sentence segmentation
     'sentenceEnd': ('...', '?..', '!..', '?!', '???', '!!!', '.', '!', '?', '…', '⁈'),
 
@@ -51,7 +51,7 @@ tokenCategories = {
                          |([а-яА-ЯЁёУўІі]+\/[а-яА-ЯЁёУўІі]+) # Compound abbreviations with slashes: `к/т`
                          |([А-ЯЁУІ]\.) # Initials: `Д. [Свіфт]`
                          |(\d+\-[а-яёўі]+([\'‘’][а-яёўі]+)*) # Numerical expressions with cyrillic endings: `1-шы`
-                         |[а-яА-ЯЁёУўІі]+\.) # 
+                         |[а-яА-ЯЁёУўІі]+\.) # с
                          ''',
                          re.X),
     ## alphanumeric codes
@@ -929,7 +929,7 @@ def tokenize(text):
                         |((?<=\s)([а-яёўі]+\.)(?=\s[^\sА-ЯЁЎІ])) # Abbreviations with periods before anything except capitalized characters: `тыс. [студэнтаў]`
                         |((?<!\d)[012]?\d:[012345]\d(:[012345]\d)?(?!\d)) # Time and duration: `12:34`, `12:34:56`
                         |(\d*[A-ZА-ЯЁЎІ]+(\d+[A-ZА-ЯЁЎІ]*)+) # Alphanumeric codes: `BY1A2C33330000`
-                        |([а-яА-ЯЁёЎўІі]+([\-\'‘’][а-яА-ЯЁёЎўІі]+)*) # Word-like tokens: `аб'ект`, `ха-ха`, `слова`, `ААН`
+                        |[а-яА-ЯЁёУўІі]+(([\'‘’][а-яА-ЯЁёУўІі]+)|(-[а-яА-ЯЁёУўІі]+){1,2})? # Word-like tokens: `аб'ект`, `ха-ха`, `слова`, `ААН`
                         |[a-zA-Z]+ # Latin word-like tokens: `Google`
                         |((?<!\d)([1-9]\d{,2}(\s\d{3})+)(?!\d)) # Space-separated numbers: `1 000 000`
                         |(\d+\-[а-яёўі]+([\'‘’][а-яёўі]+)*) # Numerical expressions with cyrillic endings: `1-шы`
