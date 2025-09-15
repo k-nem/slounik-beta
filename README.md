@@ -1,6 +1,8 @@
 # Slounik 
 `slounik` is a Python module that performs the tokenization, lemmatization, morphological analysis and annotation of Belarusian text. It uses [Universal Dependencies](https://universaldependencies.org/) annotation standard ([UD-BE](https://universaldependencies.org/be/index.html)) and supports [CoNLL-U](https://universaldependencies.org/format.html) output. Where possible, [UD Belarusian HSE](https://universaldependencies.org/treebanks/be_hse/index.html) approach to annotation was adopted. UTF-8 encoding is assumed and should be used for input.
 
+**⚠️ Note**: This is a beta version. Feel free to send bug reports or feature requests using [issue tracker](https://github.com/k-nem/slounik-beta/issues).
+
 ## Data source
  The morhological analysis is largely based on the dictionary database which can be found on https://github.com/k-nem/BelGrammarDB with the detailed documentation. The following changes were applied to the database version of this module:
 - `Sources` & `Ortho` columns were dropped from `Form` & `Variant` tables since these values are not used in morphological annotation.
