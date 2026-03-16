@@ -162,7 +162,7 @@ class testClass(unittest.TestCase):
         """
         sample = 'У 47 установах вышэйшай адукацыі рэспублікі на пачатак 2024/2025 навучальнага года навучалася: 224,2 тыс. студэнтаў, 10,4 тыс. магістрантаў. Сярод іх: больш за 7,5 тыс. (23,6%) - будучыя інжынеры, 3,9 тыс. (12,3%) - педагогі, 3,4 тыс. (10,8%) - медыкі, аграрыі - 2,8 тыс.'
         requested = slounik.generateConllu(slounik.annotateText(sample, toConllu = True))  
-        with open('conllu_sample.txt', 'r') as samplefile: correct = samplefile.read()      
+        with open('conllu_example.txt', 'r') as samplefile: correct = samplefile.read()      
         self.assertEqual(requested, correct, 'ConLL-U file output result mismatch')
 
 
