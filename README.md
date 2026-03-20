@@ -28,14 +28,18 @@ Most functions have `toConllu` flag which derermines the output format. `toConll
 
 ## Installation
 The installation follows the standard Python module import procedure.
-1. Clone this repository to your machine.
-2. Import `sys` module in your Python script:
+1. Clone this repository to your machine. Note the directory to which it is copied, it will be referred to as `{your local parent directory}`.
+2. Import `os` and `sys` module in the Python script where you are going to use the module:
     ```
-    import sys
+    import os, sys
     ```
-3. Append the path to the cloned repository's directory (where `slounik.py` is) to `sys.path`:
+3. Append the path to the cloned repository's top directory (named like this repository) to `sys.path`:
     ```
-    sys.path.append('{your local path}/slounik')
+    sys.path.append('{your local parent directory}/slounik-beta')
+    ```
+4. Change the script's current working directory to `/slounik` subdirectory of the cloned repository (where `slounik.py` is located):
+    ```
+    os.chdir('{your local parent directory}/slounik-beta/slounik')
     ```
 4. Import `slounik` module in your Python script...
     
@@ -43,12 +47,7 @@ The installation follows the standard Python module import procedure.
     ```
     import slounik
     ```
-    ...or with a shortcut:
-    ```
-    import slounik as sl
-    ```
-    where any valid shortcut can be used instead of `sl`.
-5. Use the module's functions by adding the name from **#4** before a function's name:
+5. Use the module's functions by adding `slounik.` before a function's name:
     ```
     slounik.formSearch('Ева')
     ```
@@ -145,11 +144,13 @@ The following abbreviations cannot be distinguished with RegEx:
 
 A token is checked against the list, which can be requested by `noStop` key from `slounik.abbreviations` dictionary, and marked with `Abbr=Yes` (`'Abbr': True`) if it has a match.
 
-## Stop words
-Lemmas can be excluded from search results by adding them to the list of stop words under `slounik.stopWords` variable. This is done via `setStopWords()` function, see documentation below. The default location of the list is `slounik/assets/stop_words.txt`. It can only include lemma IDs (`ID` in `Lemma` database table) separated with commas as in `1, 2, 3`. The content of this file is automatically assigned to `slounik.stopWords` variable on the module's import. It could be overriden by another call to `setStopWords()` function, find its documentation below.
+## Stop-words
+If necessary, some lemmas can be excluded from all search results. The excluded lemmas are referred to as stop-words, identified by their database IDs. The currently used list of stop-words can be viewed at `slounik.defaults['stopWords]`. The stop-word list is modified by editing `/slounik/assets/stop_words.txt` file. The latter can only include lemma IDs (`ID` in `Lemma` database table) separated by commas as in `1, 2, 3`. The content of this file is automatically assigned to `slounik.defaults['stopWords]` when the module is imported, so it is necessary to import `slounik` again if the list must be updated.
 
-## Default paths
-**⚠️ ADVANCED USERS ONLY**: It is possible to change the defaults paths to the database, stop words list file and CSV export location by modifying `defaults` dictionary on top of `slounik.py` **at your own risk**. It can be convenient if one needs to regularly use a modified database file, stop word file or CSV export locations.
+By default, the stop-word list consists of single-character nouns like `А`, `Б`, `В`, etc., that are usually used as variables or abbreviations in scientific texts ('княжацкі род *А*.', 'пункт *Б*').
+
+## Custom configuration
+**⚠️ ADVANCED USERS ONLY**: It is possible to change the default paths to the database, stop words list file and CSV export location by modifying `config.ini` in `/slounik/` subdirectory. It can be convenient if one needs to regularly use a modified database file, stop word file or export CSV to a different location.
 
 ## Functions
 
