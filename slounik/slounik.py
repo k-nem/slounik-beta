@@ -2,14 +2,66 @@ import sqlite3
 import re
 import csv
 import os
+import configparser
 from datetime import datetime
 
 # DEFAULTS
 # default paths assumed by functions if no arguments are passed
-defaults = {'databaseFile': os.path.join(os.path.abspath(os.path.dirname(__file__)), 'assets', 'dictionary.db'), # _connectToDB()  
-            'stopWordsFile': os.path.join(os.path.abspath(os.path.dirname(__file__)), 'assets', 'stop_words.txt'), # setStopWords()
-            'exportDirectory': os.path.join(os.path.abspath(os.path.dirname(__file__)), 'exports') # exportCSV()
-            }
+def _loadDefaults():
+    """
+    Retrieve database, stop-words and export configurations from `.config.ini` and populate `defaults` dictionary.
+
+    [RETURNS]:
+    - `defaults` (dict): The dictionary of default values used by some functions, with the following key-value pairs:
+        - `databaseFile` (str) : Dictionary database file path, used for database search.
+        - `exportDirectory` (str): CSV export file destination, used by `exportCSV()`.
+        - `stopWords` (dict) : Stop-word dictionary with the following keys:
+            - `List` (list) : The list of lemma IDs as integers to be used for filtering.
+            - `String` (str) : The list of lemma IDs as a string to be used in SQL search statements.
+        - `stopWordsFile` (str): Stop-words file path.
+    """
+    defaults = {'stopWords': {'List': [], 'String': ''}}
+    lemIDlist = None
+    configPath = os.path.abspath('../slounik/config.ini')
+    # config = configparser.ConfigParser()
+    # config.read(configPath)
+
+    with open(configPath) as configFile:
+        config = configparser.ConfigParser()
+        config.read_file(configFile)
+
+    # database file path
+    databasePath = config.get('Paths', 'databasePath')
+    databasePathAbs = os.path.abspath(databasePath)
+    if os.path.exists(databasePathAbs): defaults['databaseFile'] = databasePathAbs
+    else: print(f'Invalid database file path in `config.ini`: {databasePathAbs}')
+
+    # export file directory
+    exportDirectoryPath = config.get('Paths', 'exportDirectoryPath')
+    exportDirectoryPathAbs = os.path.abspath(exportDirectoryPath)
+    if os.path.exists(exportDirectoryPathAbs): defaults['exportDirectory'] = exportDirectoryPathAbs
+    else: print(f'Invalid export directory path in `config.ini`: {databasePathAbs}')
+
+    # are stop-words enabled?
+    enableStopWords = config.get('StopWords', 'enableStopWords')
+    if enableStopWords == 'yes':
+        # get the stop-word file path
+        stopWordsPath = config.get('StopWords', 'stopWordsPath')
+        stopWordsPathAbs = os.path.abspath(stopWordsPath)
+        
+        # read the file
+        if os.path.exists(stopWordsPathAbs):
+            defaults['stopWordsFile'] = stopWordsPathAbs
+            with open(stopWordsPathAbs, 'r+', encoding = 'utf-8') as file:
+                fileContents = file.read()
+                fileList = [item.strip() for item in fileContents.split(',')]
+                lemIDlist = sorted(list(set([int(lemID) for lemID in fileList if lemID.isdigit()])))
+                if lemIDlist: defaults['stopWords'] = {'List': lemIDlist, 'String': ', '.join([str(lemID) for lemID in lemIDlist])}
+
+    return defaults
+
+# load defaults
+defaults = _loadDefaults()
 
 # MAPPINGS & CLASSIFICATIONS
 # database columns
@@ -89,39 +141,6 @@ abbreviations = {
 
 
 # SERVICE FUNCTIONS (NOT FOR DIRECT USE)
-
-def _connectToDB(DBpath = defaults['databaseFile']):
-    '''
-    Create an SQLite database connection.
-
-    [ARGUMENTS]:
-    - `path` (str) OPTIONAL : OS path to the dictionary database file. If not specified, the default `databaseFile` value is used. Defaults can be modified using `config.ini`.
-
-    [RETURNS]:
-    - `(connection, cursor)` tuple:
-        - `connection` : SQLite connection object.
-        - `cursor` : SQLite database cursor.
-    
-    [USAGE]:
-    This function is used as an interim operation and is not intended for stand-alone use.
-    '''
-    # RESET 
-    connection, cursor = [None] * 2
-    
-    # CHECK FOR PATH VALIDITY
-    if DBpath.endswith('.db') and os.path.exists(DBpath):
-        # CONNECT
-        try:
-            connection = sqlite3.connect(DBpath)
-            cursor = connection.cursor()
-        except sqlite3.Error as exception:
-            return exception
-
-        return connection, cursor
-    
-    else:
-        return 'Connection failed: Invalid database file path.'
-
 
 def _boolly(value, direction):
     '''
@@ -225,7 +244,7 @@ def _UDify(data, level):
 
 # UTILITY FUNCTIONS
 
-def setStopWords(lemIDs = defaults['stopWordsFile']):
+def setStopWords():
     '''
     Set stop-words, i.e. the list of comma-separated lemma IDs in string format, to be excluded from database search results. 
     
@@ -484,7 +503,7 @@ def formSearch(query, keepLetterCase = False, fastMode = False, **kwargs):
     if any(character for character in query if character not in validQueryCharacters): return None
     
     # Reset
-    connection, response, formValues, formValue, lemValue, varValue, output = [None] * 7
+    connection, cursor, response, formValues, formValue, lemValue, varValue, output = [None] * 8
     
     # Replace `Ў` for `У`
     if query.startswith('ў'): query = 'у' + query[1:]
@@ -514,7 +533,7 @@ def formSearch(query, keepLetterCase = False, fastMode = False, **kwargs):
     # Generate SQL arguments as strings
     lemSearchSQL = _generateSearchSQL(lemKwargs) if lemKwargs else ''
     formSearchSQL = _generateSearchSQL(formKwargs) if formKwargs else ''
-    stopWordSQL = f'ID NOT IN ({stopWords['String']})' if stopWords['String'] else ''
+    stopWordSQL = f'ID NOT IN ({defaults['stopWords']['String']})' if defaults['stopWords']['String'] else ''
     
     # Generate Lemma table sub-query if necessary
     lemmaSubquery = ''
@@ -528,33 +547,29 @@ def formSearch(query, keepLetterCase = False, fastMode = False, **kwargs):
     
     # DATABASE QUERY
     try:
-        connection = _connectToDB()
-        if connection:
-            cursor = connection[1]
+        with sqlite3.connect(defaults['databaseFile']) as connection:
+            cursor = connection.cursor()
             response = ()
-            with connection[0]:
-                
-                # request matching Form table rows
-                cursor.execute(statement) 
-                formValues = cursor.fetchall()
-                
-                if formValues:
-                    if fastMode == False:
-                        # provide lemma and variant data for each search result
-                        for formValue in formValues: 
-                            cursor.execute(f'SELECT {DBcolumns['SQL']['lemma']} FROM Lemma WHERE ID = {formValue[1]}')
-                            lemValue = connection[1].fetchall()[0]
-                            cursor.execute(f'SELECT Variant FROM Variant WHERE ID = {formValue[2]}')
-                            varValue = connection[1].fetchall()[0][0]
-    
-                            response += ((formValue, lemValue, varValue),)
-                            
-                    elif fastMode == True:
-                        # no further requests necessary
-                        response = [result[0] for result in formValues]
-                    
-            connection[0].close()
+           
+            # request matching Form table rows
+            cursor.execute(statement) 
+            formValues = cursor.fetchall()
+            
+            if formValues:
+                if fastMode == False:
+                    # provide lemma and variant data for each search result
+                    for formValue in formValues: 
+                        cursor.execute(f'SELECT {DBcolumns['SQL']['lemma']} FROM Lemma WHERE ID = {formValue[1]}')
+                        lemValue = cursor.fetchall()[0]
+                        cursor.execute(f'SELECT Variant FROM Variant WHERE ID = {formValue[2]}')
+                        varValue = cursor.fetchall()[0][0]
 
+                        response += ((formValue, lemValue, varValue),)
+                        
+                elif fastMode == True:
+                    # no further requests necessary
+                    response = [result[0] for result in formValues]
+                    
     except sqlite3.Error as exception:
         return exception
 
@@ -603,7 +618,7 @@ def formByID(formID, toConllu = False, **kwargs):
     if not isinstance(formID, int): return None
 
     # RESET
-    connection, response, formValue, lemValue, varValue, features, output = [None] * 7
+    connection, cursor, response, formValue, lemValue, varValue, features, output = [None] * 8
 
     if toConllu == True:
         if 'includeForm' in kwargs.keys():
@@ -613,29 +628,26 @@ def formByID(formID, toConllu = False, **kwargs):
 
     # QUERY DATABASE
     try:
-        connection = _connectToDB()
-        if connection:
-            cursor = connection[1]
+        with sqlite3.connect(defaults['databaseFile']) as connection:
+            cursor = connection.cursor()
             response = ()
-            with connection[0]:
-                # request Form table row
-                cursor.execute(f'SELECT {DBcolumns['SQL']['form']} FROM Form WHERE ID = {formID}')
-                formValue = cursor.fetchone()
-                
-                 # provide lemma and variant data for the result
-                if formValue:
-                    cursor.execute(f'SELECT {DBcolumns['SQL']['lemma']} FROM Lemma WHERE ID = {formValue[1]}')
-                    lemValue = cursor.fetchone()
-                        
-                    response = (formValue, lemValue)
 
-                    if toConllu == False:
-                        cursor.execute(f'SELECT Variant FROM Variant WHERE ID = {formValue[2]}')
-                        varValue = cursor.fetchone()[0]
+            # request Form table row
+            cursor.execute(f'SELECT {DBcolumns['SQL']['form']} FROM Form WHERE ID = {formID}')
+            formValue = cursor.fetchone()
+            
+                # provide lemma and variant data for the result
+            if formValue:
+                cursor.execute(f'SELECT {DBcolumns['SQL']['lemma']} FROM Lemma WHERE ID = {formValue[1]}')
+                lemValue = cursor.fetchone()
+                    
+                response = (formValue, lemValue)
 
-                        response += (varValue,)
-                        
-            connection[0].close()
+                if toConllu == False:
+                    cursor.execute(f'SELECT Variant FROM Variant WHERE ID = {formValue[2]}')
+                    varValue = cursor.fetchone()[0]
+
+                    response += (varValue,)    
 
     except sqlite3.Error as exception:
         return exception
@@ -726,7 +738,7 @@ def lemmaSearch(query, keepLetterCase = False, fastMode = False, **kwargs):
     if any(character for character in query if character not in validQueryCharacters): return None
     
     # Reset
-    connection, response, output = [None] * 3
+    connection, cursor, response, output = [None] * 4
     
     # Replace `Ў` for `У`
     if query.startswith('ў'): query = 'у' + query[1:]
@@ -744,7 +756,7 @@ def lemmaSearch(query, keepLetterCase = False, fastMode = False, **kwargs):
                 
     # Generate SQL arguments as strings
     lemSearchSQL = _generateSearchSQL(lemKwargs) if lemKwargs else ''
-    stopWordSQL = f'ID NOT IN ({stopWords['String']})' if stopWords['String'] else ''
+    stopWordSQL = f'ID NOT IN ({defaults['stopWords']['String']})' if defaults['stopWords']['String'] else ''
 
     # Assemble the statement
     statement = f'''SELECT {DBcolumns['SQL']['lemma'] if fastMode == False else 'ID'} FROM Lemma
@@ -754,16 +766,13 @@ def lemmaSearch(query, keepLetterCase = False, fastMode = False, **kwargs):
     
     # DATABASE QUERY
     try:
-        connection = _connectToDB()
-        if connection:
-            cursor = connection[1]
+        with sqlite3.connect(defaults['databaseFile']) as connection:
+            cursor = connection.cursor()
             response = ()
-            with connection[0]:
-                # request matching Lemma table rows
-                cursor.execute(statement) 
-                response = cursor.fetchall()
-                
-            connection[0].close()
+
+            # request matching Lemma table rows
+            cursor.execute(statement) 
+            response = cursor.fetchall()
 
     except sqlite3.Error as exception:
         return exception
@@ -796,20 +805,17 @@ def lemmaByID(lemID):
     if not isinstance(lemID, int): return None
         
     # RESET
-    connection, response, output = [None] * 3
+    connection, cursor, response, output = [None] * 4
 
     # QUERY DATABASE
     try:
-        connection = _connectToDB()
-        if connection:
-            cursor = connection[1]
+        with sqlite3.connect(defaults['databaseFile']) as connection:
+            cursor = connection.cursor()
             response = ()
-            with connection[0]:
-                # request Lemma table row
-                cursor.execute(f'SELECT {DBcolumns['SQL']['lemma']} FROM Lemma WHERE ID = {lemID}')
-                response = cursor.fetchone()
-                    
-            connection[0].close()
+
+            # request Lemma table row
+            cursor.execute(f'SELECT {DBcolumns['SQL']['lemma']} FROM Lemma WHERE ID = {lemID}')
+            response = cursor.fetchone()
 
     except sqlite3.Error as exception:
         return exception
@@ -843,31 +849,27 @@ def allForms(lemID):
     
     # QUERY DATABASE
     try:
-        connection = _connectToDB()
-        if connection:
-            cursor = connection[1]
+        with sqlite3.connect(defaults['databaseFile']) as connection:
+            cursor = connection.cursor()
+
+            # request Lemma table row 
+            cursor.execute(f'SELECT {DBcolumns['SQL']['lemma']} FROM Lemma WHERE ID = {lemID}')
+            lemValue = cursor.fetchone()
             
-            with connection[0]:
-                # request Lemma table row 
-                cursor.execute(f'SELECT {DBcolumns['SQL']['lemma']} FROM Lemma WHERE ID = {lemID}')
-                lemValue = cursor.fetchone()
-                
-                if lemValue:
-                    # request forms and their variants
-                    response = {'lemma': lemValue, 'forms':[]}     
-                    cursor.execute(f'SELECT {DBcolumns['SQL']['form']} FROM Form WHERE LemID = {lemValue[0]} ORDER BY ID')
-                    formValues = cursor.fetchall()
+            if lemValue:
+                # request forms and their variants
+                response = {'lemma': lemValue, 'forms':[]}     
+                cursor.execute(f'SELECT {DBcolumns['SQL']['form']} FROM Form WHERE LemID = {lemValue[0]} ORDER BY ID')
+                formValues = cursor.fetchall()
 
-                    if formValues:
-                        forms = ()
-                        for formValue in formValues:
-                            cursor.execute(f'SELECT Variant FROM Variant WHERE ID = {formValue[2]}')
-                            varValue = cursor.fetchone()[0]
-                            forms += ((varValue, formValue),)
+                if formValues:
+                    forms = ()
+                    for formValue in formValues:
+                        cursor.execute(f'SELECT Variant FROM Variant WHERE ID = {formValue[2]}')
+                        varValue = cursor.fetchone()[0]
+                        forms += ((varValue, formValue),)
 
-                        response['forms'] = forms
-                    
-            connection[0].close()
+                    response['forms'] = forms
 
     except sqlite3.Error as exception:
         return exception
@@ -1221,7 +1223,6 @@ def annotateText(text, toConllu = False, extended = True):
         # GENERATE SENTENCE LEVEL ANNOTATION
         sentences = {}
         sentenceID = 1
-        sentenceTokens = ()
         
         for sentence in splitSentences(tokens): 
             sentences[sentenceID] = {'Text': ''.join(sentence), 'Tokens': annotateSentence(sentence, toConllu, extended)}
@@ -1377,6 +1378,5 @@ def completeConllu(incompleteConllu, extended = True):
 
 
 # STARTUP
-
-if __name__ == 'slounik':
-    setStopWords()
+if __name__ == 'slounik' or __name__ == 'main':
+    print(f'+ Imported `slounik` as `{__name__}`')
