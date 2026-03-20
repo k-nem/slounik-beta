@@ -22,11 +22,9 @@ def _loadDefaults():
     """
     defaults = {'stopWords': {'List': [], 'String': ''}}
     lemIDlist = None
-    configPath = os.path.abspath('../slounik/config.ini')
-    # config = configparser.ConfigParser()
-    # config.read(configPath)
+    defaults['configPath'] = os.path.abspath('config.ini')
 
-    with open(configPath) as configFile:
+    with open(defaults['configPath']) as configFile:
         config = configparser.ConfigParser()
         config.read_file(configFile)
 
@@ -1379,4 +1377,4 @@ def completeConllu(incompleteConllu, extended = True):
 
 # STARTUP
 if __name__ == 'slounik' or __name__ == 'main':
-    print(f'+ Imported `slounik` as `{__name__}`')
+    print(f'+ Imported `slounik`\n Working directory: {os.getcwd()}')
